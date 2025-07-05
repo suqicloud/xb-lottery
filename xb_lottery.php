@@ -3,7 +3,7 @@
 Plugin Name: 小半大转盘抽奖插件
 Description: 大转盘抽奖插件，支持自定义奖品、抽奖次数、中奖率等
 Plugin URI: https://www.jingxialai.com/5011.html
-Version: 1.0.2
+Version: 1.0.3
 Author: Summer
 License: GPL License
 Author URI: https://www.jingxialai.com/
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 }
 
 // 定义插件常量
-define('XB_LOTTERY_VERSION', '1.0.2');
+define('XB_LOTTERY_VERSION', '1.0.3');
 define('XB_LOTTERY_PATH', plugin_dir_path(__FILE__));
 define('XB_LOTTERY_URL', plugin_dir_url(__FILE__));
 
@@ -144,8 +144,8 @@ function xb_lottery_shortcode() {
     
     // 获取当前活动
     $current_activity = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}xb_lottery_activities ORDER BY created_at DESC LIMIT 1");
-    $activity_name = $current_activity ? $current_activity->activity_name : '抽奖活动';
     $activity_id = $current_activity ? $current_activity->id : 0;
+    $activity_name = $current_activity ? $current_activity->activity_name : '抽奖活动';
     
     // 获取设置
     $settings = get_option('xb_lottery_settings', array(
@@ -156,7 +156,8 @@ function xb_lottery_shortcode() {
         'start_time' => current_time('mysql'),
         'end_time' => date('Y-m-d H:i:s', strtotime('+1 month')),
         'ad_content' => '',
-        'is_active' => 0
+        'is_active' => 0,
+        'activity_name' => $current_activity ? $current_activity->activity_name : '抽奖活动' // 使用数据库中的活动名称
     ));
 
     $is_active = $settings['is_active'];
@@ -407,10 +408,21 @@ function xb_lottery_admin_page() {
             'start_time' => sanitize_text_field($_POST['start_time']),
             'end_time' => sanitize_text_field($_POST['end_time']),
             'ad_content' => wp_kses_post($_POST['ad_content']),
-            'is_active' => isset($_POST['is_active']) ? 1 : 0,
-            'activity_name' => sanitize_text_field($_POST['activity_name'])
+            'is_active' => isset($_POST['is_active']) ? 1 : 0
         );
         update_option('xb_lottery_settings', $settings);
+
+        // 更新活动名称到数据库
+        $activity_id = $wpdb->get_var("SELECT id FROM {$wpdb->prefix}xb_lottery_activities ORDER BY created_at DESC LIMIT 1");
+        if ($activity_id && !empty($_POST['activity_name'])) {
+            $wpdb->update(
+                $wpdb->prefix . 'xb_lottery_activities',
+                array('activity_name' => sanitize_text_field($_POST['activity_name'])),
+                array('id' => $activity_id),
+                array('%s'),
+                array('%d')
+            );
+        }
         
         $message = '<div class="notice notice-success is-dismissible xb-lottery-notice"><p>设置已保存</p></div>';
     }
@@ -501,12 +513,12 @@ function xb_lottery_admin_page() {
         'start_time' => current_time('mysql'),
         'end_time' => date('Y-m-d H:i:s', strtotime('+1 month')),
         'ad_content' => '',
-        'is_active' => 0,
-        'activity_name' => '抽奖活动'
+        'is_active' => 0
     ));
 
     $current_activity = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}xb_lottery_activities ORDER BY created_at DESC LIMIT 1");
     $activity_id = $current_activity ? $current_activity->id : 0;
+    $settings['activity_name'] = $current_activity ? $current_activity->activity_name : '抽奖活动';
     ?>
     <div class="wrap">
         <style>
@@ -543,7 +555,7 @@ function xb_lottery_admin_page() {
                 object-fit: contain;
                 margin-top: 5px;
             }
-            .xb-lottery-shipping-number {
+            .xb-lottery-shipping-numberonie {
                 width: 100%;
                 max-width: 200px;
                 padding: 5px;
@@ -842,6 +854,7 @@ function xb_lottery_spin() {
 
     $settings = get_option('xb_lottery_settings');
     $activity_id = $wpdb->get_var("SELECT id FROM {$wpdb->prefix}xb_lottery_activities ORDER BY created_at DESC LIMIT 1");
+    $activity_name = $wpdb->get_var($wpdb->prepare("SELECT activity_name FROM {$wpdb->prefix}xb_lottery_activities WHERE id = %d", $activity_id));
     
     // 检查活动是否启用和时间
     $now = current_time('timestamp');
@@ -990,7 +1003,7 @@ function xb_lottery_spin() {
             'prize_image' => '',
             'virtual_info' => '',
             'prize_type' => '',
-            'activity_name' => $settings['activity_name'],
+            'activity_name' => $activity_name,
             'record_id' => $record_id,
             'award_time' => $award_time,
             'target_angle' => $current_angle + 720 // 多转两圈
@@ -1003,9 +1016,9 @@ function xb_lottery_spin() {
         $site_title = get_bloginfo('name');
         $site_url = get_site_url();
         $lottery_page = get_permalink(get_page_by_path('抽奖活动'));
-        $subject = '【' . $site_title . '】活动获奖通知 - ' . $settings['activity_name'];
+        $subject = '【' . $site_title . '】活动获奖通知 - ' . $activity_name;
         $message = "尊敬的 " . $user->display_name . "，\n\n";
-        $message .= "感谢您参与 " . $site_title . " 举办的《" . $settings['activity_name'] . "》抽奖活动！\n\n";
+        $message .= "感谢您参与 " . $site_title . " 举办的《" . $activity_name . "》抽奖活动！\n\n";
         $message .= "恭喜您获得：" . $selected_prize->prize_name . "\n\n";
         if ($selected_prize->is_physical) {
             $message .= "请访问以下链接填写您的收货地址以便我们为您寄送奖品：\n" . $lottery_page . "\n\n";
@@ -1024,7 +1037,7 @@ function xb_lottery_spin() {
         'prize_image' => $selected_prize->prize_image,
         'virtual_info' => $selected_prize->virtual_info,
         'prize_type' => $selected_prize->prize_type,
-        'activity_name' => $settings['activity_name'],
+        'activity_name' => $activity_name,
         'record_id' => $record_id,
         'award_time' => $award_time,
         'target_angle' => $target_angle + 720 // 多转两圈
@@ -1147,7 +1160,7 @@ function xb_lottery_get_latest_records() {
         FROM {$wpdb->prefix}xb_lottery_records r 
         JOIN {$wpdb->prefix}xb_lottery p ON r.prize_id = p.id 
         JOIN {$wpdb->prefix}xb_lottery_activities a ON r.activity_id = a.id
-        WHERE r.user_id = %d AND (p.prize_type != 'virtual' OR (p.prize_type = 'virtual' AND p.virtual_info != ''))",
+        WHERE r.user_id = %d AND (p.prizetype != 'virtual' OR (p.prize_type = 'virtual' AND p.virtual_info != ''))",
         $user_id
     )) : array();
 
